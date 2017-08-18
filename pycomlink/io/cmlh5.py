@@ -47,6 +47,15 @@ cml_ch_data_names_dict = {
     'tx': {'mandatory': False,
            'quantity': 'Trasmitted signal level',
            'units': 'dBm'},
+    'wet':{'mandatory': False,
+           'quantity': 'Wet dry',
+           'units': ''},
+    'wet_CPP':{'mandatory': False,
+           'quantity': 'CPP wet dry',
+           'units': ''},
+    'wet_rad':{'mandatory': False,
+           'quantity': 'Radolan wet dry',
+           'units': ''},
     'time': {'mandatory': True,
              'quantity': 'Timestamp',
              'units': 'seconds since 1970-01-01 00:00:00',
@@ -314,6 +323,7 @@ def _read_one_cml(cml_g):
     cml_ch_list = []
     for cml_ch_name, cml_ch_g in cml_g.items():
         if 'channel_' in cml_ch_name:
+            
             cml_ch_list.append(_read_cml_channel(cml_ch_g))
 
     # TODO: Handle `auxiliary_N` and `product_N` cml_g-subgroups
@@ -360,8 +370,10 @@ def _read_cml_channel_data(cml_ch_g):
     """
 
     data_dict = {}
+    
     for name, attrs in cml_ch_data_names_dict.iteritems():
-        data_dict[name] = cml_ch_g[name]
+            data_dict[name] = cml_ch_g[name]
+            
     t = pd.to_datetime(data_dict.pop('time')[:] * 1e9)
 
     # Time must always be saved as UTC in cmlH5

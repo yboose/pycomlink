@@ -30,13 +30,18 @@ def _numba_waa_schleiss(rsl, baseline, waa_max, delta_t, tau, wet):
         waa : float
               Value of wet antenna attenuation at the preceding timestep
         waa_max : float
-               Maximum value of wet antenna attenuation
+               Maximum value of wet antenna attenuation (99percentile of txrx during dry periods)
         delta_t : float
-               Parameter for wet antnenna attenation model
+               Time between two consecutive measurements in hours
+               (Parameter for wet antenna attenuation model)
         tau : float
-              Parameter for wet antnenna attenation model
+              Time until waa reaches 95% of waa_max
+              For each rain event in the available data set, estimate the time it takes for the attenuation
+              to reach (and stay above) 95% of waa_max . Take the mean (or the median) of all these 
+              values as an estimate for tau.
+              (Parameter for wet antenna attenuation model)
         wet : int or float
-               Wet/dry classification information.
+               Wet/dry classification information
 
     Returns
     -------

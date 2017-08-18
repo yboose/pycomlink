@@ -61,7 +61,7 @@ class Interpolator(object):
         # TODO: Add options for selecting channels and/or average them
         for cml in self.cml_list:
             self.df_cmls_R[cml.metadata['cml_id']] = (
-                cml.channel_1.data[self.variable]
+                cml.channel_2.data[self.variable]
                 .resample(resample_time, label=resample_label)
                 .apply(resample_func))
 
