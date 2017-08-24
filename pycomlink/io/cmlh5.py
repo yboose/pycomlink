@@ -47,15 +47,6 @@ cml_ch_data_names_dict = {
     'tx': {'mandatory': False,
            'quantity': 'Trasmitted signal level',
            'units': 'dBm'},
-    'wet':{'mandatory': False,
-           'quantity': 'Wet dry',
-           'units': ''},
-    'wet_CPP':{'mandatory': False,
-           'quantity': 'CPP wet dry',
-           'units': ''},
-    'wet_rad':{'mandatory': False,
-           'quantity': 'Radolan wet dry',
-           'units': ''},
     'time': {'mandatory': True,
              'quantity': 'Timestamp',
              'units': 'seconds since 1970-01-01 00:00:00',
@@ -78,6 +69,7 @@ def write_to_cmlh5(cml_list, fn,
 
     cml_list:
     fn:
+    write_all_data
     product_keys:
     product_names:
     product_units:
@@ -296,26 +288,113 @@ def _missing_attribute(attr_type):
 #########################
 
 
-def read_from_cmlh5(fn):
+def read_from_cmlh5(fn,
+                    cml_id_list=None,
+                    t_start=None,
+                    t_stop=None,
+                    read_all_data = False):
     """
 
-    @param fn:
-    @return:
+    Parameters
+    ----------
+    fn
+    cml_id_list
+    t_start
+    t_stop
+    read_all_data
+
+    Returns
+    -------
+
     """
     h5_reader = h5py.File(fn, mode='r')
     cml_list = []
     for cml_g_name in h5_reader['/']:
         cml_g = h5_reader['/' + cml_g_name]
-        cml = _read_one_cml(cml_g)
+        cml = _read_one_cml(cml_g, read_all_data)
         cml_list.append(cml)
     print '%d CMLs read in' % len(cml_list)
     return cml_list
 
 
-def _read_one_cml(cml_g):
+def read_from_multiple_cmlh5(fn_list,
+                             cml_id_list=None,
+                             t_start=None,
+                             t_stop=None,
+                             sort_fn_list=True,
+                             read_all_data = False):
+    """
+
+    Parameters
+    ----------
+    fn_list
+    cml_id_list
+    t_start
+    t_stop
+    sort_fn_list
+    read_all_data
+
+    Returns
+    -------
+
+    """
+
+    if sort_fn_list:
+        fn_list.sort()
+
+    fn_list_selected = []
+
+    # Find the files where data is stored for the specified period
+    if (t_start is not None) and (t_stop is not None):
+        # loop through all files to find their temporal coverage
+
+        t_start = pd.to_datetime(t_start)
+        t_stop = pd.to_datetime(t_stop)
+
+        for fn in fn_list:
+            with h5py.File(fn, mode='r') as h5_reader:
+                # update fn_list so that only necessary files are contained
+                time_coverage_start = pd.to_datetime(
+                    h5_reader.attrs['time_coverage_start'])
+                time_coverage_stop = pd.to_datetime(
+                    h5_reader.attrs['time_coverage_stop'])
+                if ((time_coverage_start < t_stop) and
+                        (time_coverage_stop > t_start)):
+                    fn_list_selected.append(fn)
+    # If no start and stop data has been provided, just use fn_list
+    elif (t_start is None) and (t_stop is None):
+        fn_list_selected = fn_list
+    else:
+        raise ValueError('`t_start` and `t_stop` must both be either `None` '
+                         'or some timestamp information.')
+
+    # Loop over cmlh5 files and read them in
+    cml_lists = []
+    for fn in fn_list_selected:
+        cml_lists.append(read_from_cmlh5(fn=fn,
+                                         cml_id_list=cml_id_list,
+                                         t_start=t_start,
+                                         t_stop=t_stop,
+                                         read_all_data=read_all_data))
+
+    # Concat data for the Comlink objects
+    cml_dict = OrderedDict()
+    for cml_list in cml_lists:
+        for cml in cml_list:
+            cml_id = cml.metadata['cml_id']
+            if cml_id in cml_dict.keys():
+                cml_dict[cml_id].append_data(cml)
+            else:
+                cml_dict[cml_id] = cml
+
+    return cml_dict.values()
+
+
+def _read_one_cml(cml_g, read_all_data):
     """
 
     @param cml_g:
+    @param read_all_data:
     @return:
     """
     metadata = _read_cml_metadata(cml_g)
@@ -323,9 +402,8 @@ def _read_one_cml(cml_g):
     cml_ch_list = []
     for cml_ch_name, cml_ch_g in cml_g.items():
         if 'channel_' in cml_ch_name:
+            cml_ch_list.append(_read_cml_channel(cml_ch_g, read_all_data))
             
-            cml_ch_list.append(_read_cml_channel(cml_ch_g))
-
     # TODO: Handle `auxiliary_N` and `product_N` cml_g-subgroups
 
     return Comlink(channels=cml_ch_list, metadata=metadata)
@@ -361,34 +439,59 @@ def _read_cml_channel_metadata(cml_ch_g):
     return metadata
 
 
-def _read_cml_channel_data(cml_ch_g):
+def _read_cml_channel_data(cml_ch_g,
+                          read_all_data):
     """
 
     @param cml_ch_g:
+    @param read_all_data:
     @return:
 
     """
 
-    data_dict = {}
+    if read_all_data:
+        # If all channel data shall be read, build a dict with the
+        # column names and additional metadata. Start with the dict
+        # with the default channel data definition
+        _cml_ch_data_names_dict = deepcopy(cml_ch_data_names_dict)
+        # Attach all other column names of the channel's DataFrame
+        var_ls =[]
+        cml_ch_g.visit(var_ls.append)
+        for var_name in var_ls:
+            if not var_name in _cml_ch_data_names_dict.keys():
+                 _cml_ch_data_names_dict[var_name] = var_name
+                
+    else:
+        # If only standard data shall be written use the dict defined on top
+        # of this file
+        _cml_ch_data_names_dict = cml_ch_data_names_dict
     
-    for name, attrs in cml_ch_data_names_dict.iteritems():
-            data_dict[name] = cml_ch_g[name]
-            
-    t = pd.to_datetime(data_dict.pop('time')[:] * 1e9)
+    
+    data_dict = {}
+    for name, attrs in _cml_ch_data_names_dict.iteritems():
+        data_dict[name] = cml_ch_g[name]
+
+    # Time is stored in seconds since epoch and is represented in pandas by
+    # np.datetime64 in nanoseconds
+    t = (data_dict.pop('time')[:] * 1e9).astype('datetime64[ns]')
+
+    df = pd.DataFrame(index=t, data=data_dict)
 
     # Time must always be saved as UTC in cmlH5
-    t = t.tz_localize('UTC')
-    return pd.DataFrame(index=t, data=data_dict)
+    df.index = df.index.tz_localize('UTC')
+
+    return df
 
 
-def _read_cml_channel(cml_ch_g):
+def _read_cml_channel(cml_ch_g, read_all_data):
     """
 
     @param cml_ch_g:
+    @param read_all_data:
     @return:
     """
     metadata = _read_cml_channel_metadata(cml_ch_g)
-    df = _read_cml_channel_data(cml_ch_g)
+    df = _read_cml_channel_data(cml_ch_g, read_all_data)
     return ComlinkChannel(data=df, metadata=metadata)
 
 
